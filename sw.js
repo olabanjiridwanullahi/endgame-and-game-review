@@ -1,5 +1,5 @@
 /* Profscience Endgame Mate Trainer: offline support. © 2026 Profscience. */
-const CACHE='profscience-endgame-v36';
+const CACHE='profscience-endgame-v39';
 const SF_CACHE='profscience-stockfish17';   // big engine files: kept across app updates
 const FILES=['./','./index.html','./manifest.webmanifest','./icons/icon.svg','./icons/icon-192.png','./icons/icon-512.png','./icons/icon-maskable-512.png','./icons/apple-touch-icon.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES)).then(()=>self.skipWaiting()));});

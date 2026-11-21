@@ -2657,12 +2657,12 @@ const SF_NODES={150000:120000,400000:350000,1200000:1000000};
 function sfStart(){if(SF&&SF.dead){SF=null;SFok=null;}
  if(SF||typeof StockfishEngine==='undefined')return SF;
  SF=new StockfishEngine('stockfish/');
- SF.init().then(()=>{SFok=true;grStatus();},e=>{SFok=false;console.warn('Stockfish unavailable:',e.message);grStatus();});
+ SF.init(LS.get('sfReady',0)?30000:150000).then(()=>{SFok=true;LS.set('sfReady',1);grStatus();},e=>{SFok=false;console.warn('Stockfish unavailable:',e.message);grStatus();});
  return SF;}
 function grStatus(){const el=$('grStatus');if(!el)return;
  if(SFok===true){el.className='grstat ok';el.textContent='Stockfish 17 ready ✓';}
  else if(SFok===false&&GRE&&GRE._readyOk){el.className='grstat ok';el.textContent='Profscience engine ready ✓';}
- else if(SFok===null)el.textContent='Starting Stockfish…';}
+ else if(SFok===null)el.textContent=LS.get('sfReady',0)?'Starting Stockfish…':'Downloading Stockfish (7 MB, first time only)…';}
 function grEngine(){sfStart();if(GRE)return GRE;
  GRE=new PSE.ProfscienceEngine({wasm:PS_WASM});
  $('grStatus').textContent='Starting engine…';
@@ -2724,7 +2724,7 @@ async function grStart(pgn,title,me){const eng=grEngine();if(!eng){toast('The en
  try{let r=null;
   // wait for Stockfish to finish starting (it was started when the menu opened)
   if(SF)(SF.cancelAll?SF.cancelAll():SF.stop());if(SF&&SF.dead)sfStart();
- if(SF&&SFok===null){$('grPText').textContent='Starting Stockfish…';try{await SF.init();}catch(e){}}
+ if(SF&&SFok===null){$('grPText').textContent=LS.get('sfReady',0)?'Starting Stockfish…':'Downloading Stockfish (7 MB, first time only)…';try{await SF.init();}catch(e){}}
   if(SF&&SFok){try{r=await grReviewSF(eng,pgn,prog);}catch(e){if(e.message==='cancelled')throw e;console.warn('Stockfish review failed, using Profscience:',e);r=null;}}
   if(!r)r=await eng.review(pgn,{nodes:+$('grDepth').value,onProgress:prog});
   if(!r.ok)throw new Error(r.error||'Could not read that game.');
@@ -2737,14 +2737,24 @@ async function grStart(pgn,title,me){const eng=grEngine();if(!eng){toast('The en
 $('grCancel').onclick=()=>{GR.cancel=true;if(SF&&SFok)SF.stop();if(GRE)GRE.cancel();};
 async function grReviewSF(eng,pgn,prog){
  const g=await eng.parse(pgn);if(!g.ok)throw new Error(g.error||'Could not read that game.');
- const N=g.moves.length,nodes=SF_NODES[$('grDepth').value]||350000,rows=[];
+ const N=g.moves.length,mode=$('grDepth').value,maxN=SF_NODES[mode]||350000,rows=[];
+ // time budget: on slow phones the engine looks a little less deep per move so a review never drags on
+ const T={150000:{target:25000,min:60000},400000:{target:60000,min:120000},1200000:{target:0,min:0}}[mode]||{target:0,min:0};
+ // opening-book moves only need a quick look
+ let bookEnd=-1;try{let fen=g.startFen;for(let i=0;i<Math.min(N,30);i++){const L=await grLegal(fen);const x=L.find(y=>y.uci===g.moves[i]);if(!x||!x.book)break;bookEnd=i;fen=x.fen;}}catch(e){}
  await SF.newGame();
+ let cur=maxN,nps=0,spent=0;
  for(let i=0;i<=N;i++){
   if(GR.cancel)throw new Error('cancelled');
   prog(i/(N+1),i+1,N+1);
-  // the first moves are usually opening theory: a lighter look is enough there
-  const r=await SF.analyse(g.startFen,g.moves.slice(0,i),{nodes:i<12?Math.round(nodes/3):nodes,multipv:2});
+  const inBook=i<=bookEnd;
+  const n=Math.round(inBook?Math.max(6000,cur*0.06):(i<12?cur/2:cur));
+  const t0=performance.now();
+  const r=await SF.analyse(g.startFen,g.moves.slice(0,i),{nodes:n,multipv:2});
+  const dt=performance.now()-t0;spent+=dt;
   if(GR.cancel)throw new Error('cancelled');
+  if(T.target&&dt>40&&!inBook){const s=n/dt*1000;nps=nps?nps*0.7+s*0.3:s;
+   const left=N-i,timeLeft=T.target-spent;cur=left>0?Math.max(T.min,Math.min(maxN,timeLeft/left*nps)):cur;}
   const l1=r.lines[1];if(!r.best||!l1)continue;
   const l2=r.lines[2];
   rows.push(`${i} ${l1.pv[0]||r.best} ${l1.score} ${l1.depth} ${l2?l2.pv[0]+' '+l2.score:'- -'} ${l1.pv.slice(0,12).join(' ')}`);}
@@ -3198,10 +3208,18 @@ function grOpeningWire(r){document.querySelectorAll('#grOx button[data-u]').forE
 // ---------- installable app (PWA) ----------
 if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{});});}
 let deferredInstall=null;
+const PSA_UA=navigator.userAgent,PSA_STAND=()=>window.navigator.standalone||matchMedia('(display-mode: standalone)').matches;
+function installHelp(){const ios=/iphone|ipad|ipod/i.test(PSA_UA),inApp=/; wv\)|FBAN|FBAV|Instagram|WhatsApp|Snapchat|Line\/|Telegram/i.test(PSA_UA),sam=/SamsungBrowser/i.test(PSA_UA);
+ let steps;
+ if(inApp)steps='<p>You opened the app inside another app (WhatsApp, Claude, Instagram…), which cannot install it.</p><ol><li>Tap <b>⋮</b> (top right) and choose <b>Open in Chrome</b> (or "Open in browser").</li><li>Then tap <b>📲 Install</b> again.</li></ol>';
+ else if(ios)steps='<ol><li>Open this page in <b>Safari</b>.</li><li>Tap <b>Share</b> (the square with an arrow).</li><li>Choose <b>Add to Home Screen</b> → <b>Add</b>.</li></ol>';
+ else if(sam)steps='<ol><li>Tap <b>☰</b> (bottom right).</li><li>Tap <b>Add page to</b> → <b>Home screen</b>.</li></ol><p>Or open the page in Chrome and use <b>⋮ → Install app</b>.</p>';
+ else steps='<ol><li>Tap Chrome\'s <b>⋮</b> menu (top right).</li><li>Tap <b>Install app</b> (or <b>Add to Home screen</b> → <b>Install</b>).</li></ol><p>If you don\'t see it, reload the page once and wait a few seconds, then try again.</p>';
+ const sh=$('shareSheet');sh.innerHTML=`<div class="ssheet"><div class="sshead"><b>📲 Install Profscience</b><button id="ssX">✕</button></div><div class="sspre" style="text-align:left;line-height:1.5">${steps}<p style="color:var(--muted);font-size:12.5px">Once installed it opens from your home screen like a normal app and works offline.</p></div></div>`;
+ sh.classList.add('on');$('ssX').onclick=()=>sh.classList.remove('on');sh.onclick=e=>{if(e.target===sh)sh.classList.remove('on');};}
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstall=e;$('bInstall').style.display='block';});
-$('bInstall').onclick=async()=>{if(deferredInstall){deferredInstall.prompt();try{await deferredInstall.userChoice;}catch(_){}deferredInstall=null;$('bInstall').style.display='none';}
- else toast('On iPhone: tap Share, then "Add to Home Screen".');};
+$('bInstall').onclick=async()=>{if(deferredInstall){deferredInstall.prompt();try{const c=await deferredInstall.userChoice;if(c&&c.outcome==='accepted')$('bInstall').style.display='none';}catch(_){}deferredInstall=null;}
+ else installHelp();};
 window.addEventListener('appinstalled',()=>{$('bInstall').style.display='none';toast('📲 Installed! Find Profscience on your home screen.');});
-(function(){const ios=/iphone|ipad|ipod/i.test(navigator.userAgent),standalone=window.navigator.standalone||matchMedia('(display-mode: standalone)').matches;
- if(ios&&!standalone)$('bInstall').style.display='block';})();
+(function(){if(!PSA_STAND()&&/Android|iPhone|iPad|iPod|Mobile/i.test(PSA_UA))$('bInstall').style.display='block';})();
 </script></body></html>
