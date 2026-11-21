@@ -4,13 +4,13 @@
 <meta name="theme-color" content="#161512">
 <meta name="description" content="Profscience Endgame Mate Trainer: master the bishop+knight, two bishops, rook and queen mates against a perfect defender.">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Profscience">
 <title>Profscience Endgame Trainer</title>
-<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
 <style>
 :root{--bg:#161512;--panel:#24221f;--panel2:#2e2b28;--line:#3a3733;--text:#ece9e4;--muted:#9a958e;--accent:#f6c343;--good:#81b64c;--bad:#e05d4d;--warn:#e8a33d;--blue:#3fa9f5}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -344,6 +344,17 @@ body.dragover::after{content:"Drop your .pgn file to review it";position:fixed;i
 .grcard{position:fixed;inset:0;background:#000c;z-index:300;display:none;align-items:center;justify-content:center;padding:14px}.grcard.on{display:flex}
 .grcard>div{max-width:420px;width:100%;max-height:100%;overflow:auto;background:#262421;border-radius:16px;padding:12px}
 .grcard img{width:100%;border-radius:10px;display:block}
+
+#grBoard{touch-action:none}#grBoard .sq{cursor:pointer}
+#grBoard .sq.sel{box-shadow:inset 0 0 0 4px #f6c343}
+#grBoard .sq .dot.cap{width:86%;height:86%;background:transparent;border:5px solid #0003;box-sizing:border-box}
+.grtools{margin-top:8px;gap:6px}.grtools button{flex:1;padding:10px 4px;font-size:13.5px;font-weight:700}
+.grantip{font-size:12px;margin:6px 0 0;text-align:center}
+#grReview.anmode .grbw{box-shadow:0 0 0 3px #8b5cf6}
+#grReview.anmode .grbw::after{content:"";position:absolute;inset:0;background:#8b5cf61f;pointer-events:none;z-index:3}
+#grReview.anmode #grPos{color:#c4b5fd;font-weight:700}
+#grReview.anmode #grInfo{border:1.5px solid #8b5cf6aa}
+.anline{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:#c4b5fd;margin-top:4px}
 .modebar{display:flex;gap:6px;background:#ffffff0d;padding:4px;border-radius:12px;margin-bottom:8px}
 .modebar button{flex:1;border:0;background:transparent;color:var(--muted);font-weight:700;padding:9px 4px;border-radius:9px;cursor:pointer;font-size:14px}
 .modebar button.on{background:#22d3ee;color:#062a30}
@@ -557,6 +568,8 @@ body.grmode .wrap>.chips,body.grmode #iosTip,body.grmode #examBar,body.grmode .w
  </div>
  <div class="grboardwrap"><div class="greval" id="grEval"><i id="grEvalW"></i><span id="grEvalT"></span></div>
   <div class="grbw"><div id="grBoard"></div><svg id="grArrows" viewBox="0 0 100 100"></svg></div></div>
+ <div class="row grtools" id="grTools" style="display:none"><button id="grBestBtn" class="cyan">💡 Show best move</button><button id="grFollowBtn">⏩ Follow-up</button><button id="grAnBack">↶ Go back</button><button id="grAnExit">✕ Exit</button></div>
+ <div class="note grantip" id="grAnTip">💡 Tip: move any piece on the board to try your own ideas. Each move gets rated.</div>
  <div class="grnav"><button id="grFirst" title="Start">⏮</button><button id="grPrevKey" title="Previous key moment">⏪</button><button id="grPrev" title="Previous (←)">◀</button><button id="grNext" class="pri" title="Next (→)">▶</button><button id="grNextKey" title="Next key moment">⏩</button><button id="grLast" title="End">⏭</button></div>
  <div class="note grpos" id="grPos"></div>
  <div class="card grinfo" id="grInfo"></div>
@@ -2656,7 +2669,7 @@ const grEsc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'
 const SF_NODES={150000:120000,400000:350000,1200000:1000000};
 function sfStart(){if(SF&&SF.dead){SF=null;SFok=null;}
  if(SF||typeof StockfishEngine==='undefined')return SF;
- SF=new StockfishEngine('stockfish/');
+ SF=new StockfishEngine('');
  SF.init(LS.get('sfReady',0)?30000:150000).then(()=>{SFok=true;LS.set('sfReady',1);grStatus();},e=>{SFok=false;console.warn('Stockfish unavailable:',e.message);grStatus();});
  return SF;}
 function grStatus(){const el=$('grStatus');if(!el)return;
@@ -3204,9 +3217,148 @@ async function grOpeningHtml(r){const dep=r.moves.findIndex(m=>m.class!=='book')
  h+=`<div class="note" style="font-size:12px">Tap a move to see it on the board.</div></div>`;return h;}
 function grOpeningWire(r){document.querySelectorAll('#grOx button[data-u]').forEach(b=>b.onclick=()=>{grShowSum(false);grGo(+b.dataset.p);
  $('grArrows').innerHTML=grArrow(b.dataset.u,'#22d3eedd');window.scrollTo({top:$('grBoard').getBoundingClientRect().top+scrollY-80,behavior:'smooth'});});}
+// ===================== Profscience Game Review, part 3 =====================
+// On the review board: "Best move" (+ follow-up) and free analysis of your own moves.
+const GR_VAL={p:1,n:3,b:3,r:5,q:9,k:0};
+GR.an=null; // {base, fen0, moves:[{uci,san,fen,cls,ev,engine}], kind:'free'|'best', sel}
+const grEvalCache=new Map();
+// evaluate a position: cp/mate from the side to move, best move, second-best score (for "Great")
+async function grAnEval(fen){if(grEvalCache.has(fen))return grEvalCache.get(fen);
+ const L=await grLegal(fen);let res;
+ if(!L.length){res={cp:0,mate:null,best:null,second:null,terminal:true};}
+ else if(SF&&SFok){const s=await SF.analyse(fen,[],{nodes:250000,multipv:2});const l1=s.lines[1],l2=s.lines[2];
+  const conv=l=>{const v=+l.score.slice(1);return l.score[0]==='m'?(v>0?10000-v:-10000-v):v;};
+  res={cp:l1?conv(l1):0,mate:l1&&l1.score[0]==='m'?+l1.score.slice(1):null,best:s.best,second:l2?conv(l2):null,pv:l1?l1.pv:[]};}
+ else{const a=await GRE.analyse(fen,{movetime:800,multipv:2});const sg=grStm(fen)==='w'?1:-1;const e=(x)=>x?x.eval.cp*sg:0;
+  res={cp:e(a.lines[0]),mate:a.lines[0]&&a.lines[0].eval.mate!=null?a.lines[0].eval.mate*sg:null,best:a.bestmove&&a.bestmove.uci,second:a.lines[1]?e(a.lines[1]):null,pv:[]};}
+ if(grEvalCache.size>300)grEvalCache.clear();grEvalCache.set(fen,res);return res;}
+// is this move a real sacrifice (piece left where it can be taken for less)?
+async function grAnSac(fenB,mv){const b=grFenBoard(fenB),from=grSq(mv.uci.slice(0,2)),to=grSq(mv.uci.slice(2,4));
+ const pc=(b[from]||'').toLowerCase(),v=GR_VAL[pc]||0,cap=GR_VAL[(b[to]||'').toLowerCase()]||0;if(v<3)return false;
+ const opp=await grLegal(mv.fen);const takes=opp.filter(x=>x.uci.slice(2,4)===mv.uci.slice(2,4));if(!takes.length)return false;
+ const ab=grFenBoard(mv.fen);
+ for(const t of takes){const tv=GR_VAL[(ab[grSq(t.uci.slice(0,2))]||'').toLowerCase()]||0;
+  if(v-cap>=2&&tv<v)return true;
+  const back=(await grLegal(t.fen)).some(y=>y.uci.slice(2,4)===mv.uci.slice(2,4));if(!back&&v-cap>=2)return true;}
+ return false;}
+// label one move the same way the review does
+async function grAnClassify(fenB,mv){const B=await grAnEval(fenB);
+ if(mv.san.endsWith('#'))return{cls:'best',mover:10000,loss:0,B,A:{cp:-10000,mate:0}};
+ const A=await grAnEval(mv.fen);const before=B.cp,after=-A.cp,loss=Math.max(0,GR_WP(before)-GR_WP(after));
+ const isBest=mv.uci===B.best||loss<=0.3;let cls;
+ const sac=loss<=2&&GR_WP(after)>=45&&await grAnSac(fenB,mv).catch(()=>false);
+ if(sac)cls='brilliant';
+ else if(isBest){cls='best';if(B.second!=null&&mv.uci===B.best&&GR_WP(before)-GR_WP(B.second)>=20&&GR_WP(before)>=40)cls='great';}
+ else if(loss<=2)cls='excellent';else if(loss<=5)cls='good';else if(loss<=10)cls='inaccuracy';else if(loss<=20)cls='mistake';else cls='blunder';
+ if(A.mate!=null&&A.mate>0&&!(B.mate!=null&&B.mate<0))cls='blunder'; // walked into a forced mate
+ return{cls,mover:after,loss,B,A};}
+const grAnFen=()=>{const a=GR.an;return a.moves.length?a.moves[a.moves.length-1].fen:a.fen0;};
+const grBaseFen=p=>p?GR.review.moves[p-1].fen:GR.review.startFen;
+
+// ---------- entering / leaving ----------
+const _grGo=grGo;
+grGo=function(p){if(GR.an){GR.an=null;$('grReview').classList.remove('anmode');}_grGo(p);grAnTools();};
+function grAnStart(kind){GR.an={base:GR.ply,fen0:grBaseFen(GR.ply),moves:[],kind,sel:null};$('grReview').classList.add('anmode');}
+function grAnExit(){const p=GR.an?GR.an.base:GR.ply;GR.an=null;$('grReview').classList.remove('anmode');grGo(p);}
+async function grAnPush(mv,engine){const a=GR.an,fenB=grAnFen(),idx=a.moves.length;
+ const rec={uci:mv.uci,san:mv.san,fen:mv.fen,cls:null,engine:!!engine,side:grStm(fenB),num:+fenB.split(' ')[5]||1};
+ a.moves.push(rec);a.sel=null;grAnRender();
+ try{const c=await grAnClassify(fenB,mv);if(GR.an!==a)return;Object.assign(rec,c);if(engine)rec.cls='best';if(idx===a.moves.length-1||true)grAnRender();}
+ catch(e){if(GR.an===a){rec.cls='?';grAnRender();}}}
+// ---------- drawing ----------
+function grAnRender(){const a=GR.an;if(!a)return;const r=GR.review,C=PSE.CLASSIFICATIONS;
+ const fen=grAnFen(),b=grFenBoard(fen),last=a.moves[a.moves.length-1];
+ const el=$('grBoard');el.className='bt-'+S.bd;el.innerHTML='';const pcSet=S.pc==='blind'?'modern':S.pc;
+ const legal=a.sel!=null?(grLegalCache.get(fen)||[]).filter(x=>x.uci.slice(0,2)===grSqName(a.sel)):[];
+ const from=last?grSq(last.uci.slice(0,2)):-1,to=last?grSq(last.uci.slice(2,4)):-1;
+ for(let vi=0;vi<64;vi++){const i=GR.flip?63-vi:vi,r_=i>>3,f=i&7;const d=document.createElement('div');
+  d.className='sq '+((r_+f)%2===0?'l':'d')+(i===from||i===to?' last':'')+(i===a.sel?' sel':'');d.dataset.i=i;
+  const pc=b[i];if(pc){const sv=S.pc;S.pc=pcSet;d.appendChild(pieceEl(pc.toUpperCase(),pc===pc.toUpperCase()?'w':'b'));S.pc=sv;}
+  if(legal.some(x=>grSq(x.uci.slice(2,4))===i)){const dot=document.createElement('span');dot.className='dot'+(pc?' cap':'');d.appendChild(dot);}
+  if(vi%8===0){const c=document.createElement('span');c.className='coord cr';c.textContent=GR.flip?r_+1:8-r_;d.appendChild(c);}
+  if(vi>=56){const c=document.createElement('span');c.className='coord cf';c.textContent='abcdefgh'[f];d.appendChild(c);}
+  if(i===to&&last&&last.cls&&C[last.cls]){const g=document.createElement('span');g.className='grbadge';g.style.background=C[last.cls].color;g.textContent=C[last.cls].symbol;d.appendChild(g);}
+  el.appendChild(d);}
+ // arrow: what the engine would play instead of your last move
+ let svg='';if(last&&last.B&&last.B.best&&last.B.best!==last.uci&&['inaccuracy','mistake','blunder'].includes(last.cls))svg=grArrow(last.B.best,'#81b64ccc');
+ $('grArrows').innerHTML=svg;
+ // eval bar
+ const ev=last&&last.A?last.A:null;if(ev){const stm=grStm(fen),wcp=stm==='w'?ev.cp:-ev.cp,wm=ev.mate!=null?(stm==='w'?ev.mate:-ev.mate):null;grAnBar({cp:wcp,mate:wm});}
+ // banner + info
+ const line=a.moves.map((m,k)=>`${m.side==='w'?m.num+'.':(k===0?m.num+'…':'')}${grEsc(m.san)}${m.cls&&C[m.cls]&&C[m.cls].symbol&&!['best','excellent','good','book','forced'].includes(m.cls)?C[m.cls].symbol:''}`).join(' ');
+ let info;
+ if(!last){info=`<div class="gric" style="background:#8b5cf6">🔬</div><div><b>Analysis mode</b><p>Move any piece of the side to move. Each move you try gets rated (Brilliant to Blunder). These moves are <b>not in the game</b>.</p></div>`;}
+ else if(!last.cls){info=`<div class="gric" style="background:#8b5cf6">…</div><div><b>${grEsc(last.san)}</b><p>Checking this move…</p></div>`;}
+ else{const c=C[last.cls]||{color:'#888',symbol:'?',label:'Checked'};const verb=last.cls==='best'?'is the best move':'is '+(/^[aeiou]/i.test(c.label)?'an ':'a ')+c.label.toLowerCase();
+  const better=last.B&&last.B.best&&last.B.best!==last.uci&&!['best','great','brilliant'].includes(last.cls)?((grLegalCache.get(a.moves.length>1?a.moves[a.moves.length-2].fen:a.fen0)||[]).find(x=>x.uci===last.B.best)||{}).san:null;
+  const evTxt=last.A?(last.A.mate!=null?(last.A.mate===0?'Checkmate':'Mate in '+Math.abs(last.A.mate)):grFmt(last.mover)+' for '+(last.side==='w'?'White':'Black')):'';
+  if(last.engine){const n=a.moves.length;info=`<div class="gric" style="background:#81b64c">★</div><div><b>${n===1?'The best move was ':'Best line: '}${grEsc(last.side==='w'?last.num+'.':last.num+'…')} ${grEsc(last.san)}</b> <small class="gre">${evTxt}</small><p>${n===1?'This is what you could have played instead.':'This is how the game could have gone.'}</p><p class="anline">${line}</p></div>`;}
+  else info=`<div class="gric" style="background:${c.color}">${c.symbol||'✓'}</div><div><b>${last.side==='w'?last.num+'.':last.num+'…'} ${grEsc(last.san)} ${verb}</b> <small class="gre">${evTxt}</small>${better?`<p>Better was <b>${grEsc(better)}</b> (green arrow).</p>`:''}<p class="anline">Your line: ${line}</p></div>`;}
+ $('grInfo').innerHTML=info;
+ const bm=a.base?r.moves[a.base-1]:null,fromTxt=bm?`after ${bm.moveNumber}${bm.color==='w'?'.':'…'} ${bm.san}`:'from the start';
+ $('grPos').textContent=a.kind==='best'?`★ Best move instead of ${GR.review.moves[a.base].moveNumber}${GR.review.moves[a.base].color==='w'?'.':'…'} ${GR.review.moves[a.base].san}`:`🔬 Analysis ${fromTxt} · ${a.moves.length} move${a.moves.length===1?'':'s'} not in the game`;
+ grAnTools();}
+function grAnBar(ev){const wc=ev.mate!=null?(ev.mate>0?100:ev.mate<0?0:(ev.cp>0?100:0)):GR_WP(ev.cp);const bot=GR.flip?100-wc:wc;
+ $('grEvalW').style.height=bot+'%';$('grEvalW').style.background=GR.flip?'#2b2b2b':'#f1f1f1';$('grEval').style.background=GR.flip?'#f1f1f1':'#2b2b2b';
+ const txt=PSE.formatEval(ev,false).replace('+','');const whiteAhead=ev.mate!=null?ev.mate>0:ev.cp>=0;const atBottom=whiteAhead!==GR.flip;
+ $('grEvalT').textContent=txt.replace('-','');$('grEvalT').style.color=atBottom?(GR.flip?'#eee':'#222'):(GR.flip?'#222':'#eee');
+ $('grEvalT').style.top=atBottom?'auto':'3px';$('grEvalT').style.bottom=atBottom?'3px':'auto';}
+// ---------- the tool row beside the board ----------
+function grAnTools(){const r=GR.review;if(!r||!$('grTools'))return;const a=GR.an;
+ const m=GR.ply?r.moves[GR.ply-1]:null;
+ const canBest=!a&&m&&m.best&&m.best.uci&&m.best.uci!==m.uci;
+ $('grBestBtn').style.display=canBest?'':'none';
+ const isBestLine=a&&a.kind==='best';
+ $('grFollowBtn').style.display=isBestLine&&!a.followed&&a.line&&a.line.length>1?'':'none';
+ $('grAnBack').style.display=a?'':'none';$('grAnExit').style.display=a?'':'none';
+ $('grTools').style.display=(canBest||a)?'flex':'none';
+ $('grAnTip').style.display=a||!r.moves.length&&false?'none':'block';}
+$('grBestBtn').onclick=async()=>{const r=GR.review,m=r.moves[GR.ply-1];if(!m||!m.best)return;
+ const base=GR.ply-1;GR.ply=base;grAnStart('best');GR.an.base=base;GR.an.line=(m.bestLine||[]).slice(0,3);
+ const L=await grLegal(GR.an.fen0);const mv=L.find(x=>x.uci===m.best.uci);if(!mv){grAnExit();return;}
+ grAnPush(mv,true);};
+$('grFollowBtn').onclick=async()=>{const a=GR.an;if(!a||a.kind!=='best')return;a.followed=true;
+ for(const san of a.line.slice(1,3)){if(GR.an!==a)return;const L=await grLegal(grAnFen());const mv=L.find(x=>x.san===san||x.san.replace(/[+#]/g,'')===san.replace(/[+#]/g,''));if(!mv)break;
+  await grAnPush(mv,true);await grWait(350);}
+ grAnTools();};
+$('grAnBack').onclick=()=>{const a=GR.an;if(!a)return;if(a.moves.length){a.moves.pop();a.sel=null;if(!a.moves.length)return grAnExit();grAnRender();}else grAnExit();};
+$('grAnExit').onclick=grAnExit;
+// ---------- moving pieces on the review board ----------
+{let down=null;
+ const sqAt=e=>{const t=document.elementFromPoint(e.clientX,e.clientY);const s=t&&t.closest&&t.closest('#grBoard .sq');return s?+s.dataset.i:null;};
+ const idx=s=>{const all=[...$('grBoard').children];return all.indexOf(s);};
+ $('grBoard').addEventListener('pointerdown',e=>{const t=e.target.closest('.sq');if(!t)return;const vi=idx(t);if(vi<0)return;const i=GR.flip?63-vi:vi;down=i;grAnTap(i,true);});
+ $('grBoard').addEventListener('pointerup',e=>{const t=document.elementFromPoint(e.clientX,e.clientY);const s=t&&t.closest&&t.closest('#grBoard .sq');if(!s||down==null)return;const vi=idx(s);const i=GR.flip?63-vi:vi;if(i!==down)grAnTap(i,false);down=null;});}
+async function grAnTap(i,isDown){const r=GR.review;if(!r||GR.page!=='review')return;
+ const fen=GR.an?grAnFen():grBaseFen(GR.ply);const L=await grLegal(fen);if(!L.length)return;
+ const st=GR.an?GR.an:(GR.pre=GR.pre&&GR.pre.fen===fen?GR.pre:{fen,sel:null});
+ const b=grFenBoard(fen),pc=b[i],own=pc&&((pc===pc.toUpperCase())===(grStm(fen)==='w'));
+ if(st.sel!=null&&st.sel!==i){const mv=L.filter(x=>x.uci.slice(0,2)===grSqName(st.sel)&&x.uci.slice(2,4)===grSqName(i));
+  if(mv.length){const pick=mv.find(x=>x.uci.length===4||x.uci[4]==='q')||mv[0];st.sel=null;
+   if(!GR.an){const next=r.moves[GR.ply];if(next&&next.uci===pick.uci){GR.pre=null;grGo(GR.ply+1);return;}grAnStart('free');}
+   else if(GR.an.kind==='best'){GR.an.kind='free';}
+   return grAnPush(pick,false);}}
+ if(own){st.sel=st.sel===i&&isDown?null:i;}else if(isDown)st.sel=null;
+ if(GR.an)grAnRender();else grPreSel(st.sel,L);}
+// highlight a selected piece on the normal review board (before analysis starts)
+function grPreSel(sel,L){const sqs=[...$('grBoard').children];sqs.forEach(s=>{s.classList.remove('sel');const d=s.querySelector('.dot');if(d)d.remove();});
+ if(sel==null)return;const vi=GR.flip?63-sel:sel;sqs[vi]&&sqs[vi].classList.add('sel');
+ for(const x of L.filter(x=>x.uci.slice(0,2)===grSqName(sel))){const t=grSq(x.uci.slice(2,4));const s=sqs[GR.flip?63-t:t];if(!s)continue;const dot=document.createElement('span');dot.className='dot'+(s.querySelector('.pc')?' cap':'');s.appendChild(dot);}}
+// keyboard: in analysis, ← goes back one of your moves
+window.addEventListener('keydown',e=>{if(!GR.an||GR.page!=='review')return;const tg=e.target;if(tg&&/TEXTAREA|INPUT|SELECT/.test(tg.tagName))return;
+ if(e.key==='ArrowLeft'||e.key==='Backspace'){$('grAnBack').click();e.preventDefault();e.stopImmediatePropagation();}
+ else if(e.key==='Escape'){grAnExit();e.preventDefault();e.stopImmediatePropagation();}
+ else if(e.key==='ArrowRight'){e.preventDefault();e.stopImmediatePropagation();}},true);
+// the ◀ button under the board also steps back through your analysis moves
+{const prev=$('grPrev').onclick;$('grPrev').onclick=()=>{if(GR.an)$('grAnBack').click();else prev();};}
 
 // ---------- installable app (PWA) ----------
-if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{});});}
+if('serviceWorker' in navigator){const hadSW=!!navigator.serviceWorker.controller;let reloaded=false;
+ navigator.serviceWorker.addEventListener('controllerchange',()=>{if(!hadSW||reloaded)return;reloaded=true;
+  if(typeof GR!=='undefined'&&GR.page==='progress')return; // never interrupt a running review
+  location.reload();});
+ window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(r=>{try{r.update();}catch(_){}}).catch(()=>{});});
+ document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')navigator.serviceWorker.getRegistration().then(r=>r&&r.update()).catch(()=>{});});}
 let deferredInstall=null;
 const PSA_UA=navigator.userAgent,PSA_STAND=()=>window.navigator.standalone||matchMedia('(display-mode: standalone)').matches;
 function installHelp(){const ios=/iphone|ipad|ipod/i.test(PSA_UA),inApp=/; wv\)|FBAN|FBAV|Instagram|WhatsApp|Snapchat|Line\/|Telegram/i.test(PSA_UA),sam=/SamsungBrowser/i.test(PSA_UA);

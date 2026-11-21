@@ -13,11 +13,11 @@ opening explorer, review history and a shareable result card.
 | `index.html` | The whole trainer |
 | `manifest.webmanifest` | Tells phones it's an installable app (name, icon, colours) |
 | `sw.js` | Makes it work offline after the first visit |
-| `icons/` | The Profscience app icons |
-| `stockfish/` | Stockfish 17 Lite, the engine behind Game review (about 7 MB, downloaded only when Game review is first used) |
+| `icon-*.png`, `icon.svg`, `apple-touch-icon.png` | The Profscience app icons |
+| `stockfish-17-lite-single.js` / `.wasm` | Stockfish 17 Lite, the engine behind Game review (about 7 MB, downloaded only when Game review is first used) |
 | `LICENSE` | The GNU GPL v3 licence |
 
-Upload **everything**, keeping the `icons` and `stockfish` folders as folders.
+There are no folders: select **all** the files and upload them together.
 
 ## Put it online free with GitHub Pages (about 5 minutes, easiest on a laptop)
 
@@ -26,7 +26,7 @@ Upload **everything**, keeping the `icons` and `stockfish` folders as folders.
    - Name it `endgame` (or anything you like).
    - Choose **Public**, then **Create repository**.
 3. On the next page, click **uploading an existing file**.
-4. Unzip the package, open the folder, select **all** the files **and** the `icons` and `stockfish` folders, and drag them into the upload box.
+4. Unzip the package, open the folder, select **all** the files and drag them into the upload box.
 5. Scroll down and click **Commit changes**.
 6. Go to **Settings → Pages** (left menu).
    - Under **Branch**, choose `main` and `/ (root)`, then **Save**.
